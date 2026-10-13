@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantum-mutant-planner"
+version = "0.1.0"
+description = "Reference implementation of the manuscript's circuit-aware mutant planning algorithms"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "hydra-colorlog",
+    "hydra-core",
+    "numpy",
+    "qiskit==2.5.1",
+    "sympy>=1.14,<1.15",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+]
+notebook = [
+    "ipykernel",
+    "jupyterlab",
+    "nbclient",
+    "nbformat",
+]
+
+[project.scripts]
+quantum-mutant-plan = "quantum_mutant_planner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+quantum_mutant_planner = ["conf/**/*.yaml"]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "--cov=quantum_mutant_planner",
+    "--cov-branch",
+    "--cov-report=term-missing",
+    "--cov-fail-under=95",
+]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["quantum_mutant_planner"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

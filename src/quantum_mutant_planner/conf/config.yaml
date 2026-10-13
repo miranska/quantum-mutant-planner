@@ -1,0 +1,42 @@
+defaults:
+  - scenario: ghz
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+  - _self_
+
+planner:
+  numerical_tolerance: 1.0e-12
+  exact_state_max_qubits: 10
+  exact_simulation_max_qubits: 10
+  symbolic_max_qubits: 4
+  spectral_max_qubits: 2
+  max_pauli_terms: 256
+  ranking_objective: high_gap
+  enable_equivalence: true
+  enable_pilot: true
+  enable_discrimination_budget: false
+
+transpiler:
+  optimization_level: 3
+  seed: 12345
+  approximation_degree: 1.0
+  basis_gates: [rz, sx, x, cx]
+
+pilot:
+  target_error: 0.25
+  failure_probability: 0.05
+  max_shots: 250000
+  seed: 12345
+
+output:
+  path: null
+
+hydra:
+  job:
+    chdir: false
+  job_logging:
+    handlers:
+      console:
+        stream: ext://sys.stderr
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
