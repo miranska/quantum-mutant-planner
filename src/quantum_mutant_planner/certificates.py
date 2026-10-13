@@ -350,6 +350,35 @@ def _input_density(state: Statevector | DensityMatrix) -> sp.ImmutableMatrix | N
     return None
 
 
+def certify_channel_equivalence(
+    original: QuantumCircuit, mutant: QuantumCircuit, maximum_qubits: int,
+) -> bool:
+    """Prove equality of the original channels independently of transpilation.
+
+    Only supported exact gate semantics are used, without rounding numerical
+    parameters or comparing a selected input state or observable.
+    An unavailable proof returns False, which does not prove non-equivalence.
+
+    :param original: Original unitary circuit.
+    :param mutant: Mutated unitary circuit on the same ordered qubits.
+    :param maximum_qubits: Dense symbolic width limit; zero disables this path.
+    :return: True only if the relative unitary is exactly a scalar phase.
+    """
+
+    width = original.num_qubits
+    if maximum_qubits <= 0 or width > maximum_qubits or mutant.num_qubits != width:
+        return False
+    if original.num_clbits or mutant.num_clbits:
+        return False
+    original_matrix = _circuit_matrix(original)
+    mutant_matrix = _circuit_matrix(mutant)
+    if original_matrix is None or mutant_matrix is None:
+        return False
+    relative = _simplify(mutant_matrix * original_matrix.H)
+    phase = relative[0, 0]
+    return relative == phase * sp.eye(2**width) and _simplify_scalar(phase * sp.conjugate(phase)) == 1
+
+
 def certify_circuit_zero(
     problem: PlanningProblem, candidate: MutationCandidate, maximum_qubits: int,
 ) -> str | None:

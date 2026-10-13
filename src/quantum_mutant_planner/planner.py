@@ -576,6 +576,7 @@ def plan_mutant_executions(
             problem.circuit,
             candidate.mutant_circuit,
             active_settings.transpiler,
+            maximum_qubits=active_settings.symbolic_max_qubits,
         ):
             records.append(
                 PlanningRecord(
@@ -583,7 +584,7 @@ def plan_mutant_executions(
                     DecisionStatus.SKIP_SEMANTICALLY_EQUIVALENT,
                     EffectEvidence(
                         EvidenceType.EXACT,
-                        provenance="pinned transpiler equality",
+                        provenance="pinned transpiler match verified by exact channel comparison",
                     ),
                 )
             )

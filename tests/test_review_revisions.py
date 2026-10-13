@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+import sympy as sp
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import UnitaryGate
 from qiskit.quantum_info import DensityMatrix, Operator, Pauli, SparsePauliOp, Statevector, random_density_matrix
@@ -239,7 +240,7 @@ def test_removed_candidates_are_never_evaluated_or_overwritten(monkeypatch):
     circuit = QuantumCircuit(1)
     candidates = tuple(
         pauli_rotation_mutation(circuit, name, 0, Pauli('Y'), 0., angle, qubits=(0,), insert=True)
-        for name, angle in [('equivalent', 0.), ('threshold', .0001), ('budget', .01), ('active', .7)]
+        for name, angle in [('equivalent', sp.Integer(0)), ('threshold', .0001), ('budget', .01), ('active', .7)]
     )
     problem = replace(problem_for(circuit, candidates[0], threshold=.001), candidates=candidates)
     calls = []

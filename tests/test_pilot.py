@@ -20,6 +20,7 @@ def test_pauli_weight_and_shot_plan() -> None:
     assert batch_size == 12
     assert batches % 2 == 1
     assert shots == batches * batch_size
+    assert median_of_means_shot_plan(1, 2, 0.25, 0.05) == (5952, 31, 192)
     _, already_odd, _ = median_of_means_shot_plan(1, 1, 1.0, 0.1)
     assert already_odd % 2 == 1
     assert _single_snapshot_estimate(Pauli("I"), (2,), 0) == 1.0

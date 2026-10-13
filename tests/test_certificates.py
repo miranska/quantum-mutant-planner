@@ -13,7 +13,8 @@ import sympy as sp
 import quantum_mutant_planner.certificates as certificates
 from quantum_mutant_planner.certificates import (
     ExactDensityMatrix, ExactStatevector, ExactUnitaryGate, _GATES, _circuit_matrix,
-    _gate_matrix, _input_density, _numeric, _pauli_matrix, certify_circuit_zero, exact_pauli_rotation,
+    _gate_matrix, _input_density, _numeric, _pauli_matrix, certify_channel_equivalence,
+    certify_circuit_zero, exact_pauli_rotation,
 )
 from quantum_mutant_planner.examples import build_ghz_problem
 from quantum_mutant_planner.models import ExecutionBudget, PlannerSettings, PlanningProblem, QuantumTest, ZeroProvenance
@@ -27,6 +28,44 @@ def cancellation_problem(angle=sp.pi / 2):
     candidate = pauli_rotation_mutation(circuit, "cancel", 0, Pauli("Y"), 0, angle, qubits=(0,), insert=True)
     test = QuantumTest(Statevector.from_label("0"), SparsePauliOp.from_list([("X", 1), ("Z", 1)]), .1, 2 * np.sqrt(2))
     return PlanningProblem(circuit, test, (candidate,), ExecutionBudget(10000, .05))
+
+
+def test_channel_certificate_requires_all_input_equivalence():
+    """Exact inverse gates and scalar phases pass; a basis-state-only match fails."""
+    original = QuantumCircuit(1)
+    original.h(0)
+    cancelled = original.copy()
+    cancelled.x(0)
+    cancelled.x(0)
+    assert certify_channel_equivalence(original, cancelled, 4)
+    phase = original.copy()
+    phase.x(0)
+    phase.y(0)
+    phase.z(0)
+    phase.global_phase = 0.7
+    assert certify_channel_equivalence(original, phase, 4)
+    changed = original.copy()
+    changed.x(0)
+    assert np.allclose(Statevector.from_instruction(original).data, Statevector.from_instruction(changed).data)
+    assert not certify_channel_equivalence(original, changed, 4)
+    problem = cancellation_problem()
+    assert not certify_channel_equivalence(problem.circuit, problem.candidates[0].mutant_circuit, 4)
+
+
+def test_channel_certificate_refuses_unsupported_and_over_limit_inputs():
+    """Unavailable exact semantics must never become an equivalence certificate."""
+    original = QuantumCircuit(1)
+    assert not certify_channel_equivalence(original, original, 0)
+    assert not certify_channel_equivalence(QuantumCircuit(2), QuantumCircuit(2), 1)
+    assert not certify_channel_equivalence(original, QuantumCircuit(2), 4)
+    assert not certify_channel_equivalence(QuantumCircuit(1, 1), QuantumCircuit(1, 1), 4)
+    rounded = original.copy()
+    rounded.rz(1e-6, 0)
+    assert not certify_channel_equivalence(original, rounded, 4)
+    assert not certify_channel_equivalence(rounded, original, 4)
+    exact = original.copy()
+    exact.append(exact_pauli_rotation(Pauli("Z"), sp.Rational(1, 10**6)), [0])
+    assert not certify_channel_equivalence(original, exact, 4)
 
 
 def test_nontrivial_cancellation_and_nearby_nonzero():

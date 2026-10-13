@@ -91,7 +91,7 @@ class ExecutionBudget:
 
 @dataclass(frozen=True, slots=True)
 class TranspilerSettings:
-    """Pinned settings for transpiler-equality filtering.
+    """Pinned settings for finding transpiler matches to verify exactly.
 
     :param optimization_level: Qiskit preset optimization level.
     :param seed: Seed for stochastic transpiler passes.
@@ -131,7 +131,7 @@ class PlannerSettings:
     :param spectral_max_qubits: Largest relative unitary admitted to the spectral branch.
     :param max_pauli_terms: Maximum retained terms for pilot propagation.
     :param ranking_objective: Within-evidence execution-ranking objective.
-    :param enable_equivalence: Whether to run pinned transpiler equality.
+    :param enable_equivalence: Whether to verify pinned transpiler matches with exact channel comparison.
     :param enable_pilot: Whether to attempt the signed pilot branch.
     :param transpiler: Pinned transpiler configuration.
     :param pilot: Pilot-estimator configuration.

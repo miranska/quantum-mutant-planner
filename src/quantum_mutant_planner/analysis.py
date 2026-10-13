@@ -13,6 +13,7 @@ from qiskit.circuit.library import (
 )
 from qiskit.quantum_info import Clifford, DensityMatrix, Operator, Pauli, SparsePauliOp, Statevector
 
+from quantum_mutant_planner.certificates import certify_channel_equivalence
 from quantum_mutant_planner.models import (
     MutationCandidate,
     PlanningProblem,
@@ -319,13 +320,21 @@ def transpiler_equivalent(
     original: QuantumCircuit,
     mutant: QuantumCircuit,
     settings: TranspilerSettings,
+    *,
+    maximum_qubits: int = 4,
 ) -> bool:
-    """Compare circuits after one pinned deterministic transpilation pipeline.
+    """Verify a pinned transpiler match with independent exact channel algebra.
+
+    Qiskit's synthesis, optimization, and circuit equality can use numerical
+    tolerances even at approximation_degree=1.0. A compiled match alone is
+    therefore never an exact semantic certificate. Unsupported or over-limit
+    source circuits conservatively fail this sufficient, incomplete check.
 
     :param original: Original circuit.
     :param mutant: Mutant circuit.
     :param settings: Pinned transpiler settings.
-    :return: True when Qiskit circuit equality holds after transpilation.
+    :param maximum_qubits: Width limit for the independent exact comparison.
+    :return: True only for a compiled match backed by exact channel equivalence.
     """
 
     arguments = {
@@ -336,7 +345,9 @@ def transpiler_equivalent(
     }
     compiled_original = transpile(original, **arguments)
     compiled_mutant = transpile(mutant, **arguments)
-    return bool(compiled_original == compiled_mutant)
+    return bool(compiled_original == compiled_mutant) and certify_channel_equivalence(
+        original, mutant, maximum_qubits,
+    )
 
 
 def information_theoretic_strength_floor(copies: int, error_probability: float) -> float:

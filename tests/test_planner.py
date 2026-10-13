@@ -22,6 +22,7 @@ from quantum_mutant_planner.models import (
     PlanningRecord,
     QuantumTest,
     RankingObjective,
+    TranspilerSettings,
     ZeroProvenance,
 )
 from quantum_mutant_planner.mutations import (
@@ -123,8 +124,58 @@ def test_pinned_transpiler_equivalence_precedes_analysis(caplog: pytest.LogCaptu
     with caplog.at_level(logging.INFO):
         record = plan_mutant_executions(problem)[0]
     assert record.status is DecisionStatus.SKIP_SEMANTICALLY_EQUIVALENT
-    assert record.evidence.provenance == "pinned transpiler equality"
+    assert record.evidence.provenance == "pinned transpiler match verified by exact channel comparison"
     assert "planning candidate same" in caplog.text
+
+
+@pytest.mark.parametrize("optimization_level", [0, 1, 2, 3])
+@pytest.mark.parametrize("mutation", ["rotation", "matrix", "nearby_parameter"])
+def test_transpiler_tolerances_cannot_certify_semantic_equivalence(optimization_level, mutation):
+    """Optimization, synthesis, and circuit equality must not erase real edits."""
+
+    circuit = QuantumCircuit(1)
+    circuit.h(0)
+    if mutation == "nearby_parameter":
+        circuit.rz(0.3, 0)
+        candidate = replacement_mutation(circuit, "tiny", 1, RZGate(0.3 + 1e-12))
+    else:
+        gate = RZGate(1e-6) if mutation == "rotation" else UnitaryGate(Operator(RZGate(1e-12)))
+        candidate = insertion_mutation(circuit, "tiny", 1, gate, (0,))
+    problem = PlanningProblem(
+        circuit,
+        QuantumTest(Statevector.from_label("0"), SparsePauliOp("Y"), 0.1, 2.0),
+        (candidate,),
+        ExecutionBudget(100, 0.05),
+    )
+    original_state = problem.test.state.evolve(circuit)
+    mutant_state = problem.test.state.evolve(candidate.mutant_circuit)
+    assert abs(original_state.expectation_value(problem.test.observable)
+               - mutant_state.expectation_value(problem.test.observable)) > 0
+    record = plan_mutant_executions(
+        problem, PlannerSettings(transpiler=TranspilerSettings(optimization_level=optimization_level)),
+    )[0]
+    assert record.status is DecisionStatus.SKIP_BELOW_TEST_THRESHOLD
+    assert record.evidence.zero_provenance is not ZeroProvenance.ALGEBRAIC
+
+
+def test_semantic_filter_respects_symbolic_limit():
+    """A compiled match requires the independent certificate path to be enabled."""
+
+    circuit = QuantumCircuit(1)
+    circuit.x(0)
+    candidate = insertion_mutation(circuit, "inverse-pair", 1, XGate(), (0,))
+    mutant = candidate.mutant_circuit.copy()
+    mutant.x(0)
+    candidate = replace(candidate, mutant_circuit=mutant, relative_operator=Operator(np.eye(2)))
+    problem = PlanningProblem(
+        circuit,
+        QuantumTest(Statevector.from_label("0"), SparsePauliOp("Z"), 0.1, 2.0),
+        (candidate,),
+        ExecutionBudget(100, 0.05),
+    )
+    assert plan_mutant_executions(problem)[0].status is DecisionStatus.SKIP_SEMANTICALLY_EQUIVALENT
+    record = plan_mutant_executions(problem, PlannerSettings(symbolic_max_qubits=0))[0]
+    assert record.status is DecisionStatus.SKIP_BELOW_TEST_THRESHOLD
 
 
 def test_spectral_branch_agrees_with_direct_simulation() -> None:
