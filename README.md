@@ -6,9 +6,9 @@
 
 Source repository: [miranska/quantum-mutant-planner](https://github.com/miranska/quantum-mutant-planner).
 
-This package is an executable reference implementation of Algorithms 1 and 2 in *Circuit-Aware Mutation Testing for Quantum Programs*.
+This package provides supplementary material for *Circuit-Aware Mutation Testing for Quantum Programs*, including an executable reference implementation of Algorithms 1 and 2.
 It plans mutant executions for a fixed expectation-value test under the manuscript's ideal, finite-dimensional, unitary model.
-It is sample code, not evidence that the follow-on empirical studies have been completed.
+The included tests, notebook, and example-data generator illustrate the paper's algorithms and reproduce its worked examples.
 The package, tests, notebook, and example-data generator run independently of the manuscript files.
 
 ## Installation and usage
@@ -42,12 +42,11 @@ python -m pytest
 ```
 
 The library accepts Qiskit circuits and quantum-information objects directly.
-The initial CLI intentionally exposes only registered example scenarios rather than defining a separate circuit-description language.
+The CLI supports the registered example scenarios.
 
 For an exact rotation, use `exact_pauli_rotation(Pauli("Y"), sympy.pi / 2)` as the original gate and pass exact angles to `pauli_rotation_mutation`.
 Exact rotation replacements must match the declared original gate, and insertions require an original angle of zero.
 The notebook demonstrates certified cancellations, an independent circuit comparison, and the finite-shot classifier.
-The empirical Studies A--D remain future work.
 
 ## Reproducing manuscript examples
 
@@ -71,11 +70,10 @@ The command writes four ignored files under `generated-examples/`:
 - `bell-measurement.json` contains the exact two-qubit difference, optimal sign observable, readout labels, expectations, and basis-change gate order.
 
 Use `--output-dir PATH` to choose another output directory.
-These are worked examples, not results from Studies A--D.
+The generated data reproduce the paper's worked examples under the ideal model.
 The `0.01`-radian GHZ offset is an illustrative sensitivity probe, not an empirically justified fault model.
 
 Python dependencies and constraints are declared in `pyproject.toml`, including Qiskit 2.5.1 and SymPy 1.14.
-A publicly accessible versioned archive and persistent identifier remain to be supplied; these reproduction instructions do not establish public artifact availability.
 
 ## Project layout
 
