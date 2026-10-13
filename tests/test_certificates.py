@@ -52,6 +52,20 @@ def test_channel_certificate_requires_all_input_equivalence():
     assert not certify_channel_equivalence(problem.circuit, problem.candidates[0].mutant_circuit, 4)
 
 
+@pytest.mark.parametrize("parts", [2, 4])
+def test_channel_certificate_simplifies_phase_differences(parts):
+    """Equivalent radical expressions certify a phase without hiding real edits."""
+    original = QuantumCircuit(1)
+    original.s(0)
+    mutant = QuantumCircuit(1)
+    rotation = exact_pauli_rotation(Pauli("Z"), sp.pi / (2 * parts))
+    for _ in range(parts):
+        mutant.append(rotation, [0])
+    assert certify_channel_equivalence(original, mutant, 4)
+    del mutant.data[-1]
+    assert not certify_channel_equivalence(original, mutant, 4)
+
+
 def test_channel_certificate_refuses_unsupported_and_over_limit_inputs():
     """Unavailable exact semantics must never become an equivalence certificate."""
     original = QuantumCircuit(1)

@@ -376,7 +376,9 @@ def certify_channel_equivalence(
         return False
     relative = _simplify(mutant_matrix * original_matrix.H)
     phase = relative[0, 0]
-    return relative == phase * sp.eye(2**width) and _simplify_scalar(phase * sp.conjugate(phase)) == 1
+    # Equal algebraic entries can have different simplified radical forms.
+    difference = _simplify(relative - phase * sp.eye(2**width))
+    return difference == sp.zeros(2**width) and _simplify_scalar(phase * sp.conjugate(phase)) == 1
 
 
 def certify_circuit_zero(
