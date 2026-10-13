@@ -125,6 +125,8 @@ class PilotSettings:
 class PlannerSettings:
     """Computational and numerical limits for the reference planner.
 
+    :param dense_max_qubits: Largest full-register dense operator or density-matrix fallback.
+    :param local_max_qubits: Largest dense gate support for validation and Pauli updates.
     :param numerical_tolerance: Floating-point compatibility tolerance, also used as both absolute and relative ranking tie tolerance.
     :param exact_state_max_qubits: Largest state evaluated directly at a mutation site.
     :param exact_simulation_max_qubits: Largest full circuit evaluated directly.
@@ -151,6 +153,8 @@ class PlannerSettings:
     pilot: PilotSettings = field(default_factory=PilotSettings)
     symbolic_max_qubits: int = 4
     enable_discrimination_budget: bool = False
+    dense_max_qubits: int = 10
+    local_max_qubits: int = 4
 
 
 @dataclass(frozen=True, slots=True)

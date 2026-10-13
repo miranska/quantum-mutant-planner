@@ -462,9 +462,18 @@ def test_ranking_uses_relative_tolerance_and_handles_missing_gaps():
         assert [record.rank for record in _rank_records(records, objective, .5)] == [2, 3, 1]
 
 
-def test_planner_passes_configured_tolerance_to_ranking():
-    """A tolerance below the GHZ roundoff difference keeps the distinct raw order."""
-    records = plan_mutant_executions(
+def test_planner_passes_configured_tolerance_to_ranking(monkeypatch):
+    """Planning must pass the configured tolerance independently of arithmetic roundoff."""
+    from quantum_mutant_planner import planner
+    observed = []
+    rank = planner._rank_records
+
+    def capture(records, objective, threshold, tolerance):
+        observed.append(tolerance)
+        return rank(records, objective, threshold, tolerance)
+
+    monkeypatch.setattr(planner, "_rank_records", capture)
+    plan_mutant_executions(
         build_ghz_problem(), PlannerSettings(enable_equivalence=False, numerical_tolerance=1e-18),
     )
-    assert [record.rank for record in records[-2:]] == [2, 1]
+    assert observed == [1e-18]

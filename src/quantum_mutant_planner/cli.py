@@ -43,6 +43,8 @@ def settings_from_config(config: DictConfig) -> PlannerSettings:
         seed=int(config.pilot.seed),
     )
     return PlannerSettings(
+        dense_max_qubits=int(config.planner.get("dense_max_qubits", 10)),
+        local_max_qubits=int(config.planner.get("local_max_qubits", 4)),
         numerical_tolerance=float(config.planner.numerical_tolerance),
         exact_state_max_qubits=int(config.planner.exact_state_max_qubits),
         exact_simulation_max_qubits=int(config.planner.exact_simulation_max_qubits),

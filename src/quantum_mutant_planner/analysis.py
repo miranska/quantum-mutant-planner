@@ -11,9 +11,10 @@ from qiskit.circuit.library import (
     CXGate, CYGate, CZGate, HGate, IGate, SGate, SdgGate,
     SwapGate, SXGate, SXdgGate, UnitaryGate, XGate, YGate, ZGate,
 )
-from qiskit.quantum_info import Clifford, DensityMatrix, Operator, Pauli, SparsePauliOp, Statevector
+from qiskit.quantum_info import Clifford, Operator, Pauli, SparsePauliOp
 
-from quantum_mutant_planner.certificates import certify_channel_equivalence
+from quantum_mutant_planner.certificates import certify_channel_equivalence, certify_local_channel_equivalence
+from quantum_mutant_planner.pauli import ResourceLimitError, local_conjugation, observable_range
 from quantum_mutant_planner.models import (
     MutationCandidate,
     PlanningProblem,
@@ -24,20 +25,44 @@ from quantum_mutant_planner.models import (
 
 @dataclass(frozen=True, slots=True)
 class PropagationResult:
-    """Complete and retained representations of a propagated observable.
+    """Sparse propagation with an optional, lazily evaluated dense fallback.
 
-    :param exact_operator: Complete dense propagated observable.
-    :param retained_paulis: Retained Pauli approximation for pilot evaluation.
+    :param retained_paulis: Term-capped Pauli approximation for pilots.
     :param truncation_error: Accumulated discarded coefficient-mass bound.
-    :param algebraically_complete: Whether only complete Clifford Pauli maps were used.
-    :param symbolic_paulis: Complete symbolic expansion, independent of the retained approximation.
+    :param algebraically_complete: Whether complete discrete Clifford maps were used without truncation.
+    :param symbolic_paulis: Complete discrete Clifford image, including tiny terms.
+    :param complete_paulis: Complete numerical expansion when it fits the term cap.
+    :param circuit: Source circuit for bounded dense fallback.
+    :param observable: Source observable for bounded dense fallback.
+    :param suffix_start: First instruction in the propagated suffix.
+    :param dense_max_qubits: Maximum register width for the dense fallback.
     """
 
-    exact_operator: Operator
     retained_paulis: SparsePauliOp
     truncation_error: float
     algebraically_complete: bool
-    symbolic_paulis: SparsePauliOp | None = None
+    symbolic_paulis: SparsePauliOp | None
+    complete_paulis: SparsePauliOp | None
+    circuit: QuantumCircuit
+    observable: SparsePauliOp
+    suffix_start: int
+    dense_max_qubits: int
+
+    @property
+    def exact_operator(self) -> Operator | None:
+        """Materialize the complete dense observable only within the width limit.
+
+        :return: Dense numerical observable, or None above the configured limit.
+        """
+
+        if self.circuit.num_qubits > self.dense_max_qubits:
+            return None
+        matrix = self.observable.to_matrix()
+        for instruction in reversed(self.circuit.data[self.suffix_start:]):
+            support = _qubit_indices(self.circuit, instruction.qubits)
+            full = embed_local_operator(Operator(instruction.operation), support, self.circuit.num_qubits).data
+            matrix = full.conj().T @ matrix @ full
+        return Operator(matrix)
 
 
 def _qubit_indices(circuit: QuantumCircuit, qubits: tuple[object, ...]) -> tuple[int, ...]:
@@ -51,10 +76,12 @@ def _qubit_indices(circuit: QuantumCircuit, qubits: tuple[object, ...]) -> tuple
     return tuple(circuit.find_bit(qubit).index for qubit in qubits)
 
 
-def validate_problem(problem: PlanningProblem) -> None:
+def validate_problem(problem: PlanningProblem, dense_max_qubits: int = 10, local_max_qubits: int = 4) -> None:
     """Validate the ideal-unitary Algorithm 1 input contract.
 
     :param problem: Complete planning problem.
+    :param dense_max_qubits: Largest support used for dense observable validation.
+    :param local_max_qubits: Largest gate matrix used for unitary validation.
     :raises ValueError: If any model, dimension, threshold, budget, or candidate invariant fails.
     :return: None.
     """
@@ -64,6 +91,8 @@ def validate_problem(problem: PlanningProblem) -> None:
     if circuit.num_clbits or any(instruction.clbits for instruction in circuit.data):
         raise ValueError("classical bits and measurement operations are outside the unitary model")
     for instruction in circuit.data:
+        if instruction.operation.num_qubits > local_max_qubits:
+            raise ResourceLimitError("gate validation exceeds local_max_qubits")
         try:
             matrix = Operator(instruction.operation).data
         except Exception as exc:
@@ -74,15 +103,15 @@ def validate_problem(problem: PlanningProblem) -> None:
         raise ValueError("input-state qubit count does not match the circuit")
     if test.observable.num_qubits != circuit.num_qubits:
         raise ValueError("observable qubit count does not match the circuit")
-    observable_matrix = test.observable.to_matrix()
-    if not np.allclose(observable_matrix, observable_matrix.conj().T):
+    coefficients = test.observable.simplify(atol=0.0, rtol=0.0).coeffs
+    if not np.all(np.isfinite(coefficients)) or not np.allclose(coefficients.imag, 0.0):
         raise ValueError("observable must be Hermitian")
     if test.threshold <= 0.0:
         raise ValueError("test threshold must be positive")
     if test.outcome_range <= 0.0:
         raise ValueError("observable outcome range must be positive")
-    eigenvalues = np.linalg.eigvalsh(observable_matrix)
-    if not np.isclose(test.outcome_range, eigenvalues[-1] - eigenvalues[0], rtol=1e-12, atol=1e-12):
+    spectral_range = observable_range(test.observable, dense_max_qubits)
+    if not np.isclose(test.outcome_range, spectral_range, rtol=1e-12, atol=1e-12):
         raise ValueError("declared outcome range does not match the observable spectrum")
     if problem.budget.copies <= 0:
         raise ValueError("execution copies must be positive")
@@ -100,6 +129,8 @@ def validate_problem(problem: PlanningProblem) -> None:
             raise ValueError(f"candidate {candidate.identifier} has invalid suffix boundary")
         if candidate.mutant_circuit.num_qubits != circuit.num_qubits:
             raise ValueError(f"candidate {candidate.identifier} changes the circuit width")
+        if any(item.operation.num_qubits > local_max_qubits for item in candidate.mutant_circuit.data):
+            raise ResourceLimitError(f"candidate {candidate.identifier} gate validation exceeds local_max_qubits")
 
 
 def observable_support(observable: SparsePauliOp, tolerance: float = 0.0) -> set[int]:
@@ -219,6 +250,9 @@ def propagate_observable(
     suffix_start: int,
     maximum_terms: int,
     tolerance: float,
+    *,
+    dense_max_qubits: int = 10,
+    local_max_qubits: int = 4,
 ) -> PropagationResult:
     """Propagate an observable backward through one original-circuit suffix.
 
@@ -227,13 +261,15 @@ def propagate_observable(
     :param suffix_start: First suffix instruction after the mutation action.
     :param maximum_terms: Retained Pauli-term cap for the pilot representation.
     :param tolerance: Numerical simplification tolerance.
+    :param dense_max_qubits: Register limit for optional dense fallback.
+    :param local_max_qubits: Support limit for numerical local conjugation.
     :raises ValueError: If the term cap is not positive.
-    :return: Complete dense and retained Pauli propagated observables.
+    :return: Sparse propagated observables and a lazy bounded dense fallback.
     """
 
     if maximum_terms <= 0:
         raise ValueError("maximum Pauli terms must be positive")
-    exact_matrix = observable.to_matrix()
+    complete: SparsePauliOp | None = observable.copy() if len(observable) <= maximum_terms else None
     symbolic: SparsePauliOp | None = observable.copy()
     retained, truncation_error = _truncate_paulis(observable, maximum_terms, tolerance)
     symbolic_gate_types = (
@@ -242,9 +278,6 @@ def propagate_observable(
     )
     for instruction in reversed(circuit.data[suffix_start:]):
         support = _qubit_indices(circuit, instruction.qubits)
-        local = Operator(instruction.operation)
-        full = embed_local_operator(local, support, circuit.num_qubits).data
-        exact_matrix = full.conj().T @ exact_matrix @ full
         # Only discrete gate types provide symbolic certificates. Matrix-based
         # Clifford recognition can round a small non-Clifford rotation to zero.
         if instruction.operation.base_class in symbolic_gate_types:
@@ -252,18 +285,30 @@ def propagate_observable(
             retained = SparsePauliOp(retained.paulis.evolve(clifford, qargs=list(support)), retained.coeffs)
             if symbolic is not None:
                 symbolic = SparsePauliOp(symbolic.paulis.evolve(clifford, qargs=list(support)), symbolic.coeffs)
+            if complete is not None:
+                complete = SparsePauliOp(complete.paulis.evolve(clifford, qargs=list(support)), complete.coeffs)
         else:
             symbolic = None
-            retained_matrix = full.conj().T @ retained.to_matrix() @ full
-            retained = SparsePauliOp.from_operator(Operator(retained_matrix), atol=0.0, rtol=0.0)
+            if len(support) > local_max_qubits:
+                raise ResourceLimitError("suffix gate exceeds local_max_qubits")
+            local = Operator(instruction.operation)
+            retained = local_conjugation(retained, local, support, local_max_qubits)
+            if complete is not None:
+                complete = local_conjugation(complete, local, support, local_max_qubits)
+                if len(complete) > maximum_terms:
+                    complete = None
         retained, discarded = _truncate_paulis(retained, maximum_terms, tolerance)
         truncation_error += discarded
     return PropagationResult(
-        exact_operator=Operator(exact_matrix),
         retained_paulis=retained,
         truncation_error=truncation_error,
         algebraically_complete=symbolic is not None and truncation_error == 0.0,
         symbolic_paulis=symbolic,
+        complete_paulis=complete,
+        circuit=circuit.copy(),
+        observable=observable.copy(),
+        suffix_start=suffix_start,
+        dense_max_qubits=dense_max_qubits,
     )
 
 
@@ -282,7 +327,7 @@ def state_at_mutation(problem: PlanningProblem, candidate: MutationCandidate) ->
     return state
 
 
-def real_expectation(state: QuantumState, operator: Operator, tolerance: float) -> float:
+def real_expectation(state: QuantumState, operator: Operator | SparsePauliOp, tolerance: float) -> float:
     """Evaluate a Hermitian expectation and reject a material imaginary residual.
 
     :param state: State on which to evaluate the operator.
@@ -309,7 +354,7 @@ def direct_signed_gap(problem: PlanningProblem, candidate: MutationCandidate, to
 
     original = problem.test.state.evolve(problem.circuit)
     mutant = problem.test.state.evolve(candidate.mutant_circuit)
-    observable = Operator(problem.test.observable)
+    observable = problem.test.observable
     original_mean = real_expectation(original, observable, tolerance)
     mutant_mean = real_expectation(mutant, observable, tolerance)
     signed = original_mean - mutant_mean
@@ -322,6 +367,7 @@ def transpiler_equivalent(
     settings: TranspilerSettings,
     *,
     maximum_qubits: int = 4,
+    local_maximum_qubits: int | None = None,
 ) -> bool:
     """Verify a pinned transpiler match with independent exact channel algebra.
 
@@ -333,10 +379,15 @@ def transpiler_equivalent(
     :param original: Original circuit.
     :param mutant: Mutant circuit.
     :param settings: Pinned transpiler settings.
-    :param maximum_qubits: Width limit for the independent exact comparison.
+    :param maximum_qubits: Register limit for the dense exact comparison.
+    :param local_maximum_qubits: Changed-support limit, defaulting to the register limit.
     :return: True only for a compiled match backed by exact channel equivalence.
     """
 
+    local_limit = maximum_qubits if local_maximum_qubits is None else local_maximum_qubits
+    local_proof = certify_local_channel_equivalence(original, mutant, local_limit)
+    if not local_proof and (original.num_qubits > maximum_qubits or maximum_qubits <= 0):
+        return False
     arguments = {
         "basis_gates": list(settings.basis_gates),
         "optimization_level": settings.optimization_level,
@@ -345,9 +396,9 @@ def transpiler_equivalent(
     }
     compiled_original = transpile(original, **arguments)
     compiled_mutant = transpile(mutant, **arguments)
-    return bool(compiled_original == compiled_mutant) and certify_channel_equivalence(
+    return bool(compiled_original == compiled_mutant) and (local_proof or certify_channel_equivalence(
         original, mutant, maximum_qubits,
-    )
+    ))
 
 
 def information_theoretic_strength_floor(copies: int, error_probability: float) -> float:

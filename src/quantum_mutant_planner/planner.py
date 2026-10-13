@@ -7,7 +7,7 @@ import logging
 import math
 
 import numpy as np
-from qiskit.quantum_info import Operator, Pauli, SparsePauliOp
+from qiskit.quantum_info import DensityMatrix, Operator, Pauli, SparsePauliOp
 
 from quantum_mutant_planner.analysis import (
     PropagationResult,
@@ -38,6 +38,7 @@ from quantum_mutant_planner.models import (
 )
 from quantum_mutant_planner.pilot import MedianOfMeansPilot, PilotProvider
 from quantum_mutant_planner.certificates import certify_circuit_zero
+from quantum_mutant_planner.pauli import local_conjugation, rotation_difference
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,26 +63,6 @@ def _operator_norm(matrix: np.ndarray) -> float:
     """
 
     return float(np.linalg.norm(matrix, ord=2))
-
-
-def _pauli_rotation_difference(
-    propagated: Operator,
-    axis: Operator,
-    eta: float,
-) -> Operator:
-    """Construct the exact finite-angle Pauli observable difference.
-
-    :param propagated: Complete propagated observable ``O_j``.
-    :param axis: Full-register involutory Pauli axis ``A``.
-    :param eta: Signed rotation change.
-    :return: Exact ``D_A,j(eta)`` observable difference.
-    """
-
-    observable = propagated.data
-    axis_matrix = axis.data
-    anticommuting = (observable - axis_matrix @ observable @ axis_matrix) / 2.0
-    difference = (1.0 - np.cos(eta)) * anticommuting + 1j * np.sin(eta) * anticommuting @ axis_matrix
-    return Operator(difference)
 
 
 def _generic_difference(propagated: Operator, relative: Operator) -> Operator:
@@ -112,21 +93,44 @@ def _retained_difference(
     :return: Retained difference and added discarded coefficient mass.
     """
 
-    relative = embed_local_operator(candidate.relative_operator, candidate.support, num_qubits)
-    retained_observable = Operator(propagation.retained_paulis)
-    if candidate.kind is MutationKind.PAULI_ROTATION:
-        assert candidate.pauli_axis is not None
-        assert candidate.eta is not None
-        full_axis = embed_local_pauli(candidate.pauli_axis, candidate.support, num_qubits)
-        difference = _pauli_rotation_difference(retained_observable, Operator(full_axis), candidate.eta)
-    else:
-        difference = _generic_difference(retained_observable, relative)
-    paulis = SparsePauliOp.from_operator(
-        difference,
-        atol=0.0,
-        rtol=0.0,
-    )
+    paulis = _sparse_difference(candidate, propagation.retained_paulis, num_qubits, settings)
     return _truncate_paulis(paulis, settings.max_pauli_terms, settings.numerical_tolerance)
+
+
+def _sparse_difference(
+    candidate: MutationCandidate, observable: SparsePauliOp, num_qubits: int, settings: PlannerSettings,
+) -> SparsePauliOp:
+    """Apply a relative action without embedding a full-register matrix.
+
+    :param candidate: Local relative action or Pauli rotation.
+    :param observable: Complete or explicitly retained observable.
+    :param num_qubits: Register width for embedding a Pauli string.
+    :param settings: Local dense-operation limit.
+    :return: Numerical Pauli difference before any truncation.
+    """
+
+    if candidate.kind is MutationKind.PAULI_ROTATION:
+        assert candidate.pauli_axis is not None and candidate.eta is not None
+        axis = embed_local_pauli(candidate.pauli_axis, candidate.support, num_qubits)
+        return rotation_difference(observable, axis, candidate.eta)
+    return (observable - local_conjugation(
+        observable, candidate.relative_operator, candidate.support, settings.local_max_qubits,
+    )).simplify(atol=0.0, rtol=0.0)
+
+
+def _state_available(problem: PlanningProblem, maximum_qubits: int, settings: PlannerSettings) -> bool:
+    """Check state limits, including the separate density-matrix storage limit.
+
+    :param problem: Problem supplying the input representation and width.
+    :param maximum_qubits: State-preparation or direct-simulation limit.
+    :param settings: Dense fallback limit.
+    :return: Whether numerical state evolution is permitted.
+    """
+
+    width = problem.circuit.num_qubits
+    return width <= maximum_qubits and (
+        not isinstance(problem.test.state, DensityMatrix) or width <= settings.dense_max_qubits
+    )
 
 
 def _algebraic_pauli_zero(
@@ -178,7 +182,7 @@ def _algebraic_generator_zero(
 def _exact_structured_evidence(
     problem: PlanningProblem,
     candidate: MutationCandidate,
-    difference: Operator,
+    difference: Operator | SparsePauliOp,
     settings: PlannerSettings,
 ) -> EffectEvidence:
     """Evaluate one exact structured difference in the original mutation-site state.
@@ -283,11 +287,18 @@ def _perturbative_evidence(
 
     assert candidate.generator is not None
     assert candidate.eta is not None
+    if problem.circuit.num_qubits > min(settings.dense_max_qubits, propagation.dense_max_qubits):
+        return EffectEvidence(
+            evidence_type=EvidenceType.UNAVAILABLE,
+            warnings=("dense perturbative fallback exceeds dense_max_qubits",),
+        )
     generator = embed_local_operator(candidate.generator, candidate.support, problem.circuit.num_qubits).data
-    observable = propagation.exact_operator.data
+    dense = propagation.exact_operator
+    assert dense is not None
+    observable = dense.data
     commutator = generator @ observable - observable @ generator
     sensitivity_operator = Operator(-1j * commutator)
-    if problem.circuit.num_qubits <= settings.exact_state_max_qubits:
+    if _state_available(problem, settings.exact_state_max_qubits, settings):
         state = state_at_mutation(problem, candidate)
         sensitivity = abs(real_expectation(state, sensitivity_operator, settings.numerical_tolerance))
         nested = generator @ commutator - commutator @ generator
@@ -365,69 +376,66 @@ def evaluate_candidate_effect(
             score=0.0,
             zero_provenance=ZeroProvenance.ALGEBRAIC,
         )
-    relative = embed_local_operator(candidate.relative_operator, candidate.support, num_qubits)
-    structured = False
-    difference: Operator | None = None
-    if candidate.kind is MutationKind.PAULI_ROTATION:
-        assert candidate.pauli_axis is not None
-        assert candidate.eta is not None
-        axis = embed_local_pauli(candidate.pauli_axis, candidate.support, num_qubits)
-        difference = _pauli_rotation_difference(propagation.exact_operator, Operator(axis), candidate.eta)
-        structured = True
-        if _algebraic_pauli_zero(candidate, propagation, num_qubits):
-            LOGGER.info("%s: algebraic Pauli commutation zero", candidate.identifier)
-            return EffectEvidence(
-                evidence_type=EvidenceType.EXACT,
-                provenance="algebraic zero certificate",
-                gap=0.0,
-                signed_shift=0.0,
-                score=0.0,
-                zero_provenance=ZeroProvenance.ALGEBRAIC,
-            )
-    elif is_clifford_relative(candidate):
-        # Recognition is tolerance-based: conjugate with the true relative matrix,
-        # never a rounded Clifford tableau, and obtain certificates separately.
-        difference = _generic_difference(propagation.exact_operator, relative)
-        structured = True
-        LOGGER.debug("%s: relative Clifford branch", candidate.identifier)
-    elif candidate.allow_spectral and candidate.relative_operator.num_qubits <= settings.spectral_max_qubits:
-        difference = _generic_difference(propagation.exact_operator, relative)
-        structured = True
-        LOGGER.debug("%s: tractable spectral branch", candidate.identifier)
-    elif candidate.kind is MutationKind.GENERAL_HERMITIAN:
-        LOGGER.debug("%s: general-generator perturbative branch", candidate.identifier)
+    if _algebraic_pauli_zero(candidate, propagation, num_qubits):
+        LOGGER.info("%s: algebraic Pauli commutation zero", candidate.identifier)
+        return EffectEvidence(
+            evidence_type=EvidenceType.EXACT,
+            provenance="algebraic zero certificate",
+            gap=0.0, signed_shift=0.0, score=0.0,
+            zero_provenance=ZeroProvenance.ALGEBRAIC,
+        )
+    local_available = len(candidate.support) <= settings.local_max_qubits
+    clifford = local_available and is_clifford_relative(candidate)
+    structured = (candidate.kind is MutationKind.PAULI_ROTATION or clifford
+                  or (local_available and candidate.allow_spectral
+                      and candidate.relative_operator.num_qubits <= settings.spectral_max_qubits))
+    if not structured and candidate.kind is MutationKind.GENERAL_HERMITIAN:
         return _perturbative_evidence(problem, candidate, propagation, settings)
 
     if structured:
-        assert difference is not None
-        certificate = certify_circuit_zero(problem, candidate, settings.symbolic_max_qubits)
+        certificate = certify_circuit_zero(
+            problem, candidate, min(settings.symbolic_max_qubits, settings.dense_max_qubits),
+        )
         if certificate is not None:
             return EffectEvidence(
                 evidence_type=EvidenceType.EXACT,
                 provenance=certificate,
-                gap=0.0,
-                signed_shift=0.0,
-                score=0.0,
+                gap=0.0, signed_shift=0.0, score=0.0,
                 zero_provenance=ZeroProvenance.ALGEBRAIC,
             )
-        if num_qubits <= settings.exact_state_max_qubits:
-            return _exact_structured_evidence(problem, candidate, difference, settings)
-        if (settings.enable_pilot and num_qubits <= settings.exact_simulation_max_qubits
-                and (candidate.kind is MutationKind.PAULI_ROTATION or is_clifford_relative(candidate))):
+        difference: Operator | SparsePauliOp | None = None
+        complete = propagation.complete_paulis
+        if complete is not None:
+            difference = _sparse_difference(candidate, complete, num_qubits, settings)
+        if _state_available(problem, settings.exact_state_max_qubits, settings):
+            if difference is None and num_qubits <= min(settings.dense_max_qubits, propagation.dense_max_qubits):
+                dense = propagation.exact_operator
+                assert dense is not None
+                relative = embed_local_operator(candidate.relative_operator, candidate.support, num_qubits)
+                difference = _generic_difference(dense, relative)
+            if difference is not None:
+                return _exact_structured_evidence(problem, candidate, difference, settings)
+        if (settings.enable_pilot and _state_available(problem, settings.exact_simulation_max_qubits, settings)
+                and (candidate.kind is MutationKind.PAULI_ROTATION or clifford)):
             provider = pilot_provider or MedianOfMeansPilot()
             try:
                 return _pilot_evidence(problem, candidate, propagation, settings, provider)
             except ValueError as exc:
                 LOGGER.warning("%s: pilot unavailable: %s", candidate.identifier, exc)
-        if num_qubits <= settings.exact_simulation_max_qubits:
+        if _state_available(problem, settings.exact_simulation_max_qubits, settings):
             return _direct_simulation_evidence(problem, candidate, settings)
+        if difference is not None:
+            return EffectEvidence(
+                evidence_type=EvidenceType.EXACT_OBSERVABLE_SIDE,
+                provenance="structured observable-difference",
+                warnings=("mutation-site state and executable pilot are unavailable",),
+            )
         return EffectEvidence(
-            evidence_type=EvidenceType.EXACT_OBSERVABLE_SIDE,
-            provenance="structured observable-difference",
-            warnings=("mutation-site state and executable pilot are unavailable",),
+            evidence_type=EvidenceType.UNAVAILABLE,
+            warnings=("complete propagation exceeds the Pauli-term and dense limits; no executable pilot",),
         )
 
-    if num_qubits <= settings.exact_simulation_max_qubits:
+    if _state_available(problem, settings.exact_simulation_max_qubits, settings):
         return _direct_simulation_evidence(problem, candidate, settings)
     return EffectEvidence(
         evidence_type=EvidenceType.UNAVAILABLE,
@@ -551,7 +559,11 @@ def plan_mutant_executions(
     active_settings = settings or PlannerSettings()
     if active_settings.numerical_tolerance <= 0.0:
         raise ValueError("numerical tolerance must be positive")
-    validate_problem(problem)
+    if min(active_settings.dense_max_qubits, active_settings.local_max_qubits,
+           active_settings.symbolic_max_qubits, active_settings.exact_state_max_qubits,
+           active_settings.exact_simulation_max_qubits) < 0 or active_settings.max_pauli_terms <= 0:
+        raise ValueError("width limits must be nonnegative and maximum Pauli terms must be positive")
+    validate_problem(problem, active_settings.dense_max_qubits, active_settings.local_max_qubits)
     # One call per candidate at most; unused allocations are not recycled.
     effect_settings = replace(
         active_settings,
@@ -576,7 +588,8 @@ def plan_mutant_executions(
             problem.circuit,
             candidate.mutant_circuit,
             active_settings.transpiler,
-            maximum_qubits=active_settings.symbolic_max_qubits,
+            maximum_qubits=min(active_settings.symbolic_max_qubits, active_settings.dense_max_qubits),
+            local_maximum_qubits=min(active_settings.symbolic_max_qubits, active_settings.local_max_qubits),
         ):
             records.append(
                 PlanningRecord(
@@ -637,6 +650,8 @@ def plan_mutant_executions(
             candidate.suffix_start,
             active_settings.max_pauli_terms,
             active_settings.numerical_tolerance,
+            dense_max_qubits=active_settings.dense_max_qubits,
+            local_max_qubits=active_settings.local_max_qubits,
         )
         evidence = evaluate_candidate_effect(
             problem,

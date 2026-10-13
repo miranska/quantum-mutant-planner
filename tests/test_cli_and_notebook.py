@@ -40,7 +40,12 @@ def test_older_config_defaults_to_ordinary_mutation_testing() -> None:
     with initialize_config_module(config_module="quantum_mutant_planner.conf", version_base=None):
         config = compose(config_name="config")
     del config.planner.enable_discrimination_budget
-    assert settings_from_config(config).enable_discrimination_budget is False
+    del config.planner.dense_max_qubits
+    del config.planner.local_max_qubits
+    settings = settings_from_config(config)
+    assert settings.enable_discrimination_budget is False
+    assert settings.dense_max_qubits == 10
+    assert settings.local_max_qubits == 4
 
 
 def test_unknown_scenario_is_rejected() -> None:

@@ -1,8 +1,9 @@
-"""Small-circuit algebraic certificates from explicitly exact input data.
+"""Bounded local and full-circuit certificates from explicitly exact input data.
 
-This path compares the two complete circuits independently of the planner's
-local-response formulas. Floating-point matrices are never rationalized into
-purported intended exact gates or states.
+Channel proofs verify source circuits independently of mutation metadata.
+Zero proofs compare the complete circuits independently of local-response
+formulas. Floating-point matrices are never rationalized into purported
+intended exact gates or states.
 """
 
 from __future__ import annotations
@@ -379,6 +380,58 @@ def certify_channel_equivalence(
     # Equal algebraic entries can have different simplified radical forms.
     difference = _simplify(relative - phase * sp.eye(2**width))
     return difference == sp.zeros(2**width) and _simplify_scalar(phase * sp.conjugate(phase)) == 1
+
+
+def certify_local_channel_equivalence(
+    original: QuantumCircuit, mutant: QuantumCircuit, maximum_qubits: int,
+) -> bool:
+    """Cancel verified common context and prove equality on the changed support.
+
+    Context comparison uses exact gate semantics and ordered operands, never
+    Qiskit's tolerance-based circuit equality or candidate metadata.
+
+    :param original: Original source circuit.
+    :param mutant: Mutated source circuit on the same register.
+    :param maximum_qubits: Maximum gate and changed-support width for this proof.
+    :return: True only when bounded exact local algebra proves channel equality.
+    """
+
+    if maximum_qubits <= 0 or original.num_qubits != mutant.num_qubits or original.num_clbits or mutant.num_clbits:
+        return False
+    sequences = []
+    for circuit in (original, mutant):
+        sequence = []
+        for item in circuit.data:
+            if item.clbits or item.operation.num_qubits > maximum_qubits:
+                return False
+            matrix = _gate_matrix(item.operation)
+            if matrix is None:
+                return False
+            sequence.append((matrix, tuple(circuit.find_bit(q).index for q in item.qubits)))
+        sequences.append(sequence)
+    left, right = sequences
+    start = 0
+    while start < min(len(left), len(right)) and left[start] == right[start]:
+        start += 1
+    stop = 0
+    while stop < min(len(left), len(right)) - start and left[-1 - stop] == right[-1 - stop]:
+        stop += 1
+    left = left[start:len(left) - stop]
+    right = right[start:len(right) - stop]
+    support = sorted({index for _, operands in left + right for index in operands})
+    if not support:
+        return True
+    if len(support) > maximum_qubits:
+        return False
+    reduced = []
+    for sequence in (left, right):
+        operations = tuple((matrix, tuple(support.index(index) for index in operands))
+                           for matrix, operands in sequence)
+        reduced.append(_compose_circuit(len(support), operations))
+    relative = _simplify(reduced[1] * reduced[0].H)
+    phase = relative[0, 0]
+    return (_simplify(relative - phase * sp.eye(2**len(support))) == sp.zeros(2**len(support))
+            and _simplify_scalar(phase * sp.conjugate(phase)) == 1)
 
 
 def certify_circuit_zero(

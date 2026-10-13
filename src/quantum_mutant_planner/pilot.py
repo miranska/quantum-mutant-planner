@@ -186,6 +186,8 @@ class MedianOfMeansPilot:
                 probabilities = cache.get(bases)
                 if probabilities is None:
                     probabilities = _measurement_probabilities(state, bases)
+                    if len(cache) >= 32:
+                        del cache[next(iter(cache))]
                     cache[bases] = probabilities
                 outcome = int(rng.choice(len(probabilities), p=probabilities))
                 for label, target in unique.items():

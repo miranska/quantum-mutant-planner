@@ -75,12 +75,20 @@ The `0.01`-radian GHZ offset is an illustrative sensitivity probe, not an empiri
 
 ## Limitations
 
-The implementation uses dense matrices and is intended for small, ideal unitary circuits.
+Structural cones, Pauli commutation, and bounded local conjugation run without full-register matrices.
+General Pauli propagation can still grow exponentially; `max_pauli_terms` caps its retained approximation and all discarded coefficient mass enters the pilot error bound.
+Dense numerical fallbacks default to ten qubits (`dense_max_qubits`), local gate matrices to four (`local_max_qubits`), and state preparation and direct simulation to ten each.
+A statevector uses `2^n` amplitudes; a dense operator or density matrix uses `4^n` entries.
+The input state and mutation operators are still supplied as dense Qiskit objects, and the built-in pilot simulates a state.
+Validation computes supported Pauli spectral ranges analytically or diagonalizes the observable's active support within the dense limit; unsupported over-limit gates or range calculations raise an explicit error.
 A transpiler match receives `skip--semantically equivalent` only after an independent exact channel proof; numerical transpiler equality alone is insufficient.
 The symbolic certificate path requires supported exact gate data and defaults to four qubits (`symbolic_max_qubits=4`); setting the limit to zero disables it.
+For channel equivalence, verified common circuit context can be cancelled so that this limit applies only to the changed support, even in a wider register.
+Full-circuit symbolic proofs also obey the dense width limit.
+When effect evaluation exhausts its limits, the planner retains the candidate with unresolved evidence.
 Unsupported or unproved matches continue through planning, and the filter may miss equivalent circuits, including some that differ only by global phase.
 Failure to prove equivalence does not prove non-equivalence, and a below-threshold decision does not justify excluding a mutant as semantically equivalent.
-Dense gaps and bounds use floating-point arithmetic and are not validated numerical certificates.
+Numerical gaps and bounds use floating-point arithmetic and are not validated numerical certificates.
 
 ## Pilot allocation
 
