@@ -73,6 +73,17 @@ The command writes four ignored files under `generated-examples/`:
 Use `--output-dir PATH` to choose another output directory.
 The `0.01`-radian GHZ offset is an illustrative sensitivity probe, not an empirically justified fault model.
 
+## Scalability probes
+
+Run bounded synthetic checks of structure, Pauli propagation, local proofs, and dense fallbacks:
+
+```sh
+python scripts/probe_scalability.py
+```
+
+The Unix-like runner uses process timeouts and memory monitoring; results go to `generated-scalability/results.json`.
+See the [recorded results and scope](scalability-results/README.md) for the tested circuits, resource budgets, and the distinction between helper checks and the full planner.
+
 ## Limitations
 
 Structural cones, Pauli commutation, and bounded local conjugation run without full-register matrices.
@@ -105,5 +116,5 @@ See [`pilot.py`](src/quantum_mutant_planner/pilot.py) for the estimator and shot
 - [`src/`](src/): package and Hydra configuration.
 - [`tests/`](tests/): automated tests, including notebook execution and mathematical checks.
 - [`notebook/`](notebook/): executable walkthrough.
-- [`scripts/`](scripts/): example-data generator.
+- [`scripts/`](scripts/): example-data generator and scalability probes.
 - [`.github/workflows/`](.github/workflows/): test and coverage workflows.

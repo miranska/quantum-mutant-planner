@@ -24,6 +24,7 @@ multirun/
 .hydra/
 .ipynb_checkpoints/
 /generated-examples/
+/generated-scalability/
 
 # Local editor and operating-system files
 .DS_Store
