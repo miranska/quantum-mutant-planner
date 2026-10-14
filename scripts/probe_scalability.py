@@ -207,10 +207,10 @@ def worker(family: str, register_qubits: int, repeats: int, rotation_count: int 
 
 
 def run_case(family: str, case: dict, args: argparse.Namespace) -> dict:
-    """Run a case with a preflight screen, worker timeout, and RSS watchdog."""
+    """Run a case with an optional screen and mandatory timeout/RSS watchdog."""
     record = {'family': family, **case, 'estimated_peak_bytes': memory_estimate(family, case['register_qubits'])}
     ceiling = args.memory_mib * 2**20
-    if record['estimated_peak_bytes'] > ceiling:
+    if args.memory_screen and record['estimated_peak_bytes'] > ceiling:
         return {**record, 'status': 'not_run_memory_screen'}
     environment = dict(os.environ)
     for name in ['OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS']:
@@ -222,6 +222,7 @@ def run_case(family: str, case: dict, args: argparse.Namespace) -> dict:
     start = time.monotonic()
     with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment) as process:
         status = None
+        sampled_peak_rss = 0
         while process.poll() is None:
             try:
                 stdout, stderr = process.communicate(timeout=.2)
@@ -230,14 +231,22 @@ def run_case(family: str, case: dict, args: argparse.Namespace) -> dict:
                 if time.monotonic() - start > args.timeout_seconds:
                     status = 'timeout'
                 current = subprocess.run(['ps', '-o', 'rss=', '-p', str(process.pid)], capture_output=True, text=True)
-                if current.stdout.strip() and int(current.stdout.strip()) * 1024 > ceiling:
-                    status = 'memory_watchdog'
+                if current.stdout.strip():
+                    sampled_peak_rss = max(sampled_peak_rss, int(current.stdout.strip()) * 1024)
+                    if sampled_peak_rss > ceiling:
+                        status = 'memory_watchdog'
+                elif process.poll() is None:
+                    # Never run an unscreened allocation without a working guard.
+                    status = 'failed'
+                    record['error'] = 'RSS watchdog could not inspect the running worker'
                 if status:
                     process.kill()
                     break
         stdout, stderr = process.communicate()
+        record.update({'sampled_peak_rss_bytes': sampled_peak_rss,
+                       'worker_wall_seconds': time.monotonic() - start})
         if status:
-            return {**record, 'status': status, 'worker_wall_seconds': time.monotonic() - start}
+            return {**record, 'status': status}
         if process.returncode:
             return {**record, 'status': 'failed', 'error': stderr[-4000:]}
         return {**record, 'status': 'completed', **json.loads(stdout)}
@@ -260,6 +269,8 @@ def main() -> None:
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--timeout-seconds', type=float, default=20.)
     parser.add_argument('--memory-mib', type=int, default=768)
+    parser.add_argument('--no-memory-screen', dest='memory_screen', action='store_false',
+                        help='bypass the allocation estimate; keep the RSS watchdog and timeout active')
     parser.add_argument('--families', nargs='+', choices=list(FAMILIES), default=list(FAMILIES))
     parser.add_argument('--worker', choices=list(FAMILIES))
     parser.add_argument('--register-qubits', type=int, help='worker register width, including idle qubits')
@@ -285,7 +296,8 @@ def main() -> None:
         'platform': platform.platform(), 'processor': cpu_model, 'python': platform.python_version(),
         'qiskit': qiskit.__version__, 'numpy': np.__version__, 'sympy': sympy.__version__,
         'source_sha256': source_digest(), 'repeats': args.repeats, 'worker_timeout_seconds': args.timeout_seconds,
-        'memory_ceiling_mib': args.memory_mib, 'linear_algebra_threads': 1,
+        'memory_ceiling_mib': args.memory_mib, 'memory_screen_enabled': args.memory_screen,
+        'rss_poll_interval_seconds': .2, 'linear_algebra_threads': 1,
         'declared_cases': {family: FAMILIES[family] for family in args.families},
         'timing_scope': 'analysis excludes imports and setup; peak RSS includes the worker; symbolic caches cleared per repeat',
         'shadow_shot_plans': [

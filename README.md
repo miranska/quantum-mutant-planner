@@ -78,10 +78,11 @@ The `0.01`-radian GHZ offset is an illustrative sensitivity probe, not an empiri
 Run bounded synthetic checks of structure, Pauli propagation, local proofs, and dense fallbacks:
 
 ```sh
-python scripts/probe_scalability.py
+python scripts/probe_scalability.py --no-memory-screen
 ```
 
 The Unix-like runner uses process timeouts and memory monitoring; results go to `generated-scalability/results.json`.
+This command attempts the full declared grid while retaining the RSS watchdog and timeout.
 See the [recorded results and scope](scalability-results/README.md) for the tested circuits, resource budgets, and the distinction between helper checks and the full planner.
 
 ## Limitations
