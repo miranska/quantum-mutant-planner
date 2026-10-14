@@ -5,17 +5,18 @@
 | Name                                              |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
 |-------------------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
 | src/quantum\_mutant\_planner/\_\_init\_\_.py      |        5 |        0 |        0 |        0 |    100% |           |
-| src/quantum\_mutant\_planner/analysis.py          |      158 |        0 |       64 |        1 |     99% | 252-\>258 |
-| src/quantum\_mutant\_planner/certificates.py      |      149 |        0 |       52 |        0 |    100% |           |
-| src/quantum\_mutant\_planner/cli.py               |       34 |        0 |        2 |        1 |     97% |  96-\>101 |
+| src/quantum\_mutant\_planner/analysis.py          |      187 |        0 |       82 |        1 |     99% | 296-\>300 |
+| src/quantum\_mutant\_planner/certificates.py      |      198 |        2 |       78 |        2 |     99% |  418, 425 |
+| src/quantum\_mutant\_planner/cli.py               |       34 |        0 |        2 |        1 |     97% |  98-\>103 |
 | src/quantum\_mutant\_planner/conf/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100% |           |
 | src/quantum\_mutant\_planner/examples.py          |       20 |        0 |        2 |        0 |    100% |           |
-| src/quantum\_mutant\_planner/models.py            |      121 |        0 |        0 |        0 |    100% |           |
+| src/quantum\_mutant\_planner/models.py            |      123 |        0 |        0 |        0 |    100% |           |
 | src/quantum\_mutant\_planner/mutations.py         |       94 |        1 |       38 |        1 |     98% |        39 |
-| src/quantum\_mutant\_planner/pilot.py             |       83 |        0 |       38 |        0 |    100% |           |
-| src/quantum\_mutant\_planner/planner.py           |      221 |        2 |       88 |        2 |     99% |  227, 235 |
+| src/quantum\_mutant\_planner/pauli.py             |       56 |        0 |       30 |        1 |     99% |   81-\>98 |
+| src/quantum\_mutant\_planner/pilot.py             |       85 |        0 |       40 |        0 |    100% |           |
+| src/quantum\_mutant\_planner/planner.py           |      219 |        2 |       94 |        2 |     99% |  231, 239 |
 | src/quantum\_mutant\_planner/statistics.py        |       51 |        0 |       22 |        0 |    100% |           |
-| **TOTAL**                                         |  **936** |    **3** |  **306** |    **5** | **99%** |           |
+| **TOTAL**                                         | **1072** |    **5** |  **388** |    **8** | **99%** |           |
 
 
 ## Setup coverage badge
