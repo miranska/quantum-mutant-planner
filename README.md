@@ -1,18 +1,45 @@
-# Quantum mutant planner
+# Quantum Mutant Planner
 
+[![arXiv](https://img.shields.io/badge/arXiv-2610.36976-b31b1b.svg)](https://arxiv.org/abs/2610.36976)
 [![Tests](https://github.com/miranska/quantum-mutant-planner/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/miranska/quantum-mutant-planner/actions/workflows/tests.yml?query=branch%3Amain+event%3Apush)
 [![Coverage](https://github.com/miranska/quantum-mutant-planner/raw/python-coverage-comment-action-data/badge.svg)](https://github.com/miranska/quantum-mutant-planner/tree/python-coverage-comment-action-data)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Source repository: [miranska/quantum-mutant-planner](https://github.com/miranska/quantum-mutant-planner).
+Python reference implementation for planning mutant executions in quantum program testing.
+This package accompanies the preprint [*Toward Circuit-Aware Mutation Testing for Quantum Programs: Exact Visibility and Execution Planning*](https://arxiv.org/abs/2610.36976), and implements Algorithms 1 and 2.
 
-This package provides supplementary material for *Circuit-Aware Mutation Testing for Quantum Programs*, including an executable reference implementation of Algorithms 1 and 2.
-It plans mutant executions for a fixed expectation-value test under the manuscript's ideal, finite-dimensional, unitary model.
+## Overview
+
+A quantum mutant can survive because it preserves program behavior, because the chosen input or measurement hides its effect, or because the test collects insufficient statistical evidence.
+The planner analyzes a fixed expectation-value test under the paper's ideal, finite-dimensional, unitary model to help distinguish these cases and decide which mutants to execute.
+
+The repository includes:
+
+- Structural and algebraic checks, supported exact certificates, numerical effect calculations, and simulated pilot estimates.
+- Planning records that retain the decision, supporting evidence, and unresolved cases for each candidate.
+- A separate finite-shot classifier for differential expectation tests.
+- An executable notebook, reproducible GHZ and Bell examples, and bounded synthetic scalability probes.
+
 The package, tests, notebook, and example-data generator run independently of the manuscript files.
+
+## Dependencies
+
+The package requires Python 3.10 or later; continuous integration runs on Python 3.13.
+Runtime dependencies are Qiskit 2.5.1, NumPy, SymPy, Hydra Core, and Hydra Colorlog.
+The `test` and `notebook` extras add pytest, coverage reporting, and Jupyter tools.
+All dependencies and version constraints are declared in [`pyproject.toml`](pyproject.toml) and installed by the command below.
 
 ## Installation and usage
 
-Run all commands in this README from the directory containing this README and `pyproject.toml`.
+Clone the public repository:
+
+```sh
+git clone https://github.com/miranska/quantum-mutant-planner.git
+cd quantum-mutant-planner
+```
+
+Run the remaining commands from the directory containing this README and `pyproject.toml`.
 
 Install the package and its development dependencies into your active Python environment:
 
@@ -20,13 +47,13 @@ Install the package and its development dependencies into your active Python env
 python -m pip install -e '.[test,notebook]'
 ```
 
-Dependencies and version constraints, including Qiskit 2.5.1, are declared in [`pyproject.toml`](pyproject.toml).
-
 Run the manuscript's GHZ example through the Hydra CLI:
 
 ```sh
 quantum-mutant-plan scenario=ghz
 ```
+
+The command prints a JSON report with per-candidate decisions and evidence.
 
 Open the sample notebook in JupyterLab:
 
@@ -87,6 +114,9 @@ See the [recorded results and scope](scalability-results/README.md) for the test
 
 ## Limitations
 
+This is a research reference implementation for ideal, noiseless circuits and differential expectation tests.
+The paper's native-oracle extensions and full tableau-based classification algorithm are not implemented; execution savings and performance on real mutation populations require separate evaluation.
+
 Structural cones, Pauli commutation, and bounded local conjugation run without full-register matrices.
 General Pauli propagation can still grow exponentially; `max_pauli_terms` caps its retained approximation and all discarded coefficient mass enters the pilot error bound.
 Dense numerical fallbacks default to ten qubits (`dense_max_qubits`), local gate matrices to four (`local_max_qubits`), and state preparation and direct simulation to ten each.
@@ -118,4 +148,19 @@ See [`pilot.py`](src/quantum_mutant_planner/pilot.py) for the estimator and shot
 - [`tests/`](tests/): automated tests, including notebook execution and mathematical checks.
 - [`notebook/`](notebook/): executable walkthrough.
 - [`scripts/`](scripts/): example-data generator and scalability probes.
+- [`scalability-results/`](scalability-results/): recorded synthetic probe results and their scope.
 - [`.github/workflows/`](.github/workflows/): test and coverage workflows.
+
+## Citation
+
+If you use or study this code, please cite the [preprint](https://arxiv.org/abs/2610.36976).
+Citation metadata is provided in [`CITATION.cff`](CITATION.cff), with the preprint set as the preferred citation.
+Use GitHub's **Cite this repository** button to copy a BibTeX or APA citation.
+
+## Contact us
+
+For bug reports, questions, or feature suggestions, please open an [issue](https://github.com/miranska/quantum-mutant-planner/issues) or a [pull request](https://github.com/miranska/quantum-mutant-planner/pulls).
+
+## License
+
+This code is distributed under the [Apache License 2.0](LICENSE).

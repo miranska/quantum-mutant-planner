@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use or study this code, please cite the preprint listed in preferred-citation."
+type: software
+title: "Quantum Mutant Planner"
+authors:
+  - family-names: Miranskyy
+    given-names: Andriy
+  - family-names: Campos
+    given-names: José
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/miranska/quantum-mutant-planner"
+url: "https://github.com/miranska/quantum-mutant-planner"
+preferred-citation:
+  type: article
+  title: "Toward Circuit-Aware Mutation Testing for Quantum Programs: Exact Visibility and Execution Planning"
+  authors:
+    - family-names: Miranskyy
+      given-names: Andriy
+    - family-names: Campos
+      given-names: José
+  year: 2026
+  month: 10
+  journal: "arXiv preprint arXiv:2610.36976"
+  doi: "10.48550/arXiv.2610.36976"
+  url: "https://arxiv.org/abs/2610.36976"
